@@ -24,44 +24,56 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Extract ZIP source code
+      - name: Extract ZIP
         run: |
           ZIP_FILE=$(find . -maxdepth 1 -iname "*.zip" -print -quit)
-
           if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: ZIP file not found!"
+            echo "ZIP file not found"
             exit 1
           fi
-
           mkdir -p extracted
           unzip -q "$ZIP_FILE" -d extracted
 
-          GRADLEW=$(find extracted -type f -name gradlew -print -quit)
+      - name: Find Android project
+        id: project
+        run: |
+          SETTINGS=$(find extracted -type f \
+            \( -name settings.gradle.kts -o -name settings.gradle \) \
+            -print -quit)
 
-          if [ -z "$GRADLEW" ]; then
-            echo "ERROR: gradlew not found inside ZIP!"
-            find extracted -maxdepth 3 -type f | head -100
+          if [ -z "$SETTINGS" ]; then
+            echo "Android project not found"
             exit 1
           fi
 
-          PROJECT_DIR=$(dirname "$GRADLEW")
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          PROJECT_DIR=$(dirname "$SETTINGS")
+          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+
+          PROP="$PROJECT_DIR/gradle/wrapper/gradle-wrapper.properties"
+          if [ -f "$PROP" ]; then
+            VERSION=$(grep distributionUrl "$PROP" | sed -E 's/.*gradle-([0-9.]+)-(all|bin)\.zip.*/\1/')
+          else
+            VERSION="8.9"
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Project: $PROJECT_DIR"
+          echo "Gradle: $VERSION"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-
-      - name: Grant execute permission
-        run: chmod +x "$PROJECT_DIR/gradlew"
+        with:
+          gradle-version: ${{ steps.project.outputs.version }}
 
       - name: Build APK
-        run: |
-          cd "$PROJECT_DIR"
-          ./gradlew assembleDebug
+        working-directory: ${{ steps.project.outputs.dir }}
+        run: gradle assembleDebug
 
       - name: Collect APK
         run: |
           mkdir -p dist
-          find extracted -type f -name "*.apk" -exec cp {} dist/ \;
+          find "${{ steps.project.outputs.dir }}" \
+            -type f -name "*.apk" -exec cp {} dist/ \;
           ls -lh dist/
 
       - name: Upload APK
