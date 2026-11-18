@@ -24,18 +24,49 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Extract ZIP source code
+        run: |
+          ZIP_FILE=$(find . -maxdepth 1 -iname "*.zip" -print -quit)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: ZIP file not found!"
+            exit 1
+          fi
+
+          mkdir -p extracted
+          unzip -q "$ZIP_FILE" -d extracted
+
+          GRADLEW=$(find extracted -type f -name gradlew -print -quit)
+
+          if [ -z "$GRADLEW" ]; then
+            echo "ERROR: gradlew not found inside ZIP!"
+            find extracted -maxdepth 3 -type f | head -100
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$GRADLEW")
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
       - name: Grant execute permission
-        run: chmod +x gradlew
+        run: chmod +x "$PROJECT_DIR/gradlew"
 
       - name: Build APK
-        run: ./gradlew assembleDebug
+        run: |
+          cd "$PROJECT_DIR"
+          ./gradlew assembleDebug
+
+      - name: Collect APK
+        run: |
+          mkdir -p dist
+          find extracted -type f -name "*.apk" -exec cp {} dist/ \;
+          ls -lh dist/
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: MoMo-Hmawbi-APK
-          path: app/build/outputs/apk/debug/*.apk
+          path: dist/*.apk
           retention-days: 1
